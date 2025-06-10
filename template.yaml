@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  smart-meeting-engine
+Transform:
+  - AWS::Serverless-2016-10-31
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    LoggingConfig:
+      LogFormat: JSON
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
+
+# Resources declares the AWS resources that you want to include in the stack
+Resources:
+  # DynamoDB table - Create first to avoid dependencies
+  SampleTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: id
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+
+  # Lambda function to process uploaded audio files - Create before S3 bucket
+  ProcessAudioUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/process-audio.processAudioHandler
+      MemorySize: 512
+      Timeout: 300
+      Description: Process uploaded audio files and trigger transcription pipeline
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SampleTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:GetObjectVersion
+              Resource: !Sub "arn:aws:s3:::${AWS::StackName}-audio-${AWS::AccountId}/*"
+            - Effect: Allow
+              Action:
+                - transcribe:StartTranscriptionJob
+                - transcribe:GetTranscriptionJob
+              Resource: "*"
+      Environment:
+        Variables:
+          AUDIO_BUCKET: !Sub "${AWS::StackName}-audio-${AWS::AccountId}"
+          SAMPLE_TABLE: !Ref SampleTable
+
+  # S3 Bucket with EventBridge notifications enabled
+  MeetingAudioBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            MaxAge: 3000
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  # EventBridge Rule to trigger Lambda on S3 uploads
+  AudioUploadEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-audio-upload-rule"
+      Description: Trigger audio processing when files are uploaded to S3
+      EventPattern:
+        source:
+          - "aws.s3"
+        detail-type:
+          - "Object Created"
+        detail:
+          bucket:
+            name:
+              - !Ref MeetingAudioBucket
+          object:
+            key:
+              - suffix: ".mp3"
+              - suffix: ".wav"
+              - suffix: ".m4a"
+              - suffix: ".ogg"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ProcessAudioUploadFunction.Arn
+          Id: "ProcessAudioTarget"
+
+  # Permission for EventBridge to invoke Lambda
+  ProcessAudioEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProcessAudioUploadFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AudioUploadEventRule.Arn
+
+  # Lambda function for handling file uploads
+  FileUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/file-upload.uploadHandler
+      MemorySize: 256
+      Timeout: 30
+      Description: Handle audio file uploads for meeting recordings
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref MeetingAudioBucket
+        - S3ReadPolicy:
+            BucketName: !Ref MeetingAudioBucket
+      Environment:
+        Variables:
+          AUDIO_BUCKET: !Ref MeetingAudioBucket
+      Events:
+        UploadApi:
+          Type: Api
+          Properties:
+            Path: /upload
+            Method: post
+            RestApiId: !Ref ServerlessRestApi
+        UploadOptions:
+          Type: Api
+          Properties:
+            Path: /upload
+            Method: options
+            RestApiId: !Ref ServerlessRestApi
+
+  # Lambda function to generate presigned URLs for direct S3 uploads
+  PresignedUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/handlers/presigned-url.presignedUrlHandler
+      MemorySize: 128
+      Timeout: 30
+      Description: Generate presigned URLs for direct audio file uploads to S3
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref MeetingAudioBucket
+      Environment:
+        Variables:
+          AUDIO_BUCKET: !Ref MeetingAudioBucket
+      Events:
+        PresignedApi:
+          Type: Api
+          Properties:
+            Path: /presigned-url
+            Method: post
+            RestApiId: !Ref ServerlessRestApi
+        PresignedOptions:
+          Type: Api
+          Properties:
+            Path: /presigned-url
+            Method: options
+            RestApiId: !Ref ServerlessRestApi
+
+
+Outputs:
+  WebEndpoint:
+    Description: API Gateway endpoint URL for Prod stage
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+
+  AudioBucketName:
+    Description: "S3 Bucket for audio file uploads"
+    Value: !Ref MeetingAudioBucket
+
+  UploadEndpoint:
+    Description: "API endpoint for file uploads"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/upload"
+
+  PresignedUrlEndpoint:
+    Description: "API endpoint for presigned URL generation"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presigned-url"
+
+  EventRuleName:
+    Description: "EventBridge rule for audio processing"
+    Value: !Ref AudioUploadEventRule
