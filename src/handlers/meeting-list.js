@@ -1,6 +1,7 @@
 // src/handlers/meeting-list.js
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const {createOptionsResponse} = require("../utils/api-utils");
 
 const ddbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'eu-central-1' });
 const dynamodb = DynamoDBDocumentClient.from(ddbClient);
@@ -13,19 +14,9 @@ const SAMPLE_TABLE = process.env.SAMPLE_TABLE;
  * Triggered by: API Gateway requests
  */
 exports.meetingListHandler = async (event) => {
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Content-Type': 'application/json'
-    };
 
     if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 200,
-            headers: corsHeaders,
-            body: ''
-        };
+        return createOptionsResponse()
     }
 
     try {
