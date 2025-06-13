@@ -1,26 +1,15 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
+import {createOptionsResponse} from "../utils/api-utils";
 
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'eu-central-1' });
 const AUDIO_BUCKET = process.env.AUDIO_BUCKET;
 
 export const uploadHandler = async (event) => {
 
-    const corsHeaders = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Content-Type': 'application/json'
-    };
-
     if (event.httpMethod === 'OPTIONS') {
-        console.log('Handling OPTIONS preflight request');
-        return {
-            statusCode: 200,
-            headers: corsHeaders,
-            body: JSON.stringify({ message: 'CORS preflight successful' })
-        };
+        return createOptionsResponse();
     }
 
     try {

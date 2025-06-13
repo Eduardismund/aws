@@ -181,6 +181,10 @@ Resources:
                 - logs:CreateLogStream
                 - logs:PutLogEvents
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: "*"
       Environment:
         Variables:
           AUDIO_BUCKET: !Ref MeetingAudioBucket
@@ -221,17 +225,17 @@ Resources:
         Variables:
           AUDIO_BUCKET: !Ref MeetingAudioBucket
           SAMPLE_TABLE: !Ref SampleTable
-      Events:
-        DynamoDBStream:
-          Type: DynamoDB
-          Properties:
-            Stream: !GetAtt SampleTable.StreamArn
-            StartingPosition: TRIM_HORIZON
-            BatchSize: 1
-            MaximumBatchingWindowInSeconds: 5
-            FilterCriteria:
-              Filters:
-                - Pattern: '{"eventName": ["INSERT"], "dynamodb": {"NewImage": {"status": {"S": ["uploaded"]}}}}'
+#      Events:
+#        DynamoDBStream:
+#          Type: DynamoDB
+#          Properties:
+#            Stream: !GetAtt SampleTable.StreamArn
+#            StartingPosition: TRIM_HORIZON
+#            BatchSize: 1
+#            MaximumBatchingWindowInSeconds: 5
+#            FilterCriteria:
+#              Filters:
+#                - Pattern: '{"eventName": ["INSERT"], "dynamodb": {"NewImage": {"status": {"S": ["uploaded"]}}}}'
 
   # Function: Handle transcription completion
   TranscriptionCompleteProcessorFunction:
@@ -264,21 +268,37 @@ Resources:
   AudioUploadEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "${AWS::StackName}-AudioUploadEventRule"
-      Description: Trigger when audio files are uploaded
+      Name: !Sub "${AWS::StackName}-AudioUploadEventRule"  # ← Add this
+      Description: Trigger when audio files are uploaded to meetings folder  # ← Add this
       EventPattern:
-        source:
-          - "aws.s3"
-        detail-type:
-          - "Object Created"
+        source: [ "aws.s3" ]
+        detail-type: [ "Object Created" ]
         detail:
           bucket:
-            name:
-              - !Ref MeetingAudioBucket
-      State: ENABLED
-      Targets:
+            name: [ !Ref MeetingAudioBucket ]
+          object:
+            key:
+              - prefix: "meetings/"  # ← Only process files in meetings/ folder
+      State: ENABLED  # ← Add this
+      Targets: # ← Add this entire section
         - Arn: !GetAtt AudioUploadProcessorFunction.Arn
           Id: "AudioUploadTarget"
+
+  # EventBridge Rule for custom transcription events
+  TranscriptionTriggerEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-TranscriptionTriggerEventRule"
+      Description: Trigger transcription when meeting is ready
+      EventPattern:
+        source:
+          - "meeting.app"
+        detail-type:
+          - "Meeting Ready for Transcription"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt TranscriptionStarterFunction.Arn
+          Id: "TranscriptionTriggerTarget"
 
   # EventBridge Rule for transcription completion
   TranscriptionCompleteEventRule:
@@ -316,6 +336,16 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
       SourceArn: !GetAtt TranscriptionCompleteEventRule.Arn
+
+  TranscriptionTriggerEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TranscriptionStarterFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt TranscriptionTriggerEventRule.Arn
+
+
 
   # CloudWatch Log Groups with retention
   PresignedUrlLogGroup:
