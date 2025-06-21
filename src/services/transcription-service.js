@@ -51,7 +51,7 @@ exports.processCompletedTranscription = async(jobName) => {
         const meetingId = extractMeetingIdFromJobName(jobName);
 
         if (!meetingId) {
-            return;
+            return {meetingId: null, success: false};
         }
 
         const transcriptionData = await downloadTranscriptionResults(transcriptUri);
@@ -63,6 +63,12 @@ exports.processCompletedTranscription = async(jobName) => {
             fullTranscript: fullTranscript,
             updatedAt: new Date().toISOString()
         })
+
+        return {
+            meetingId,
+            success: true,
+            transcriptionLength: fullTranscript.length
+        }
     } catch (error) {
         throw error;
     }
@@ -118,8 +124,6 @@ exports.getTranscriptionJobStatus = async (jobName) => {
  */
 async function downloadTranscriptionResults(transcriptUri) {
     try {
-
-
         const {bucket, key} = parseS3Uri(transcriptUri)
         const transcriptString = await downloadFromS3(bucket, key)
         return JSON.parse(transcriptString);

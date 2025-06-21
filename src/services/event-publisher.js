@@ -10,12 +10,11 @@ const eventBridgeClient = new EventBridgeClient({
  * @param {Object} meeting - Meeting record with id, s3Bucket, s3Key, fileName
  * @returns {Object} Event result
  */
-exports.publishTranscriptionEvent = async (meeting) => {
-    // ✅ FIXED: Use correct EventBridge property names and structure
+async function publishTranscriptionEvent(meeting){
     const event = {
         Source: 'meeting.app',
         DetailType: 'Meeting Ready for Transcription',
-        Detail: JSON.stringify({  // ✅ EventBridge requires Detail to be stringified
+        Detail: JSON.stringify({
             meetingId: meeting.id,
             bucketName: meeting.s3Bucket,
             objectKey: meeting.s3Key,
@@ -24,7 +23,6 @@ exports.publishTranscriptionEvent = async (meeting) => {
         })
     };
 
-    console.log('Publishing event:', JSON.stringify(event, null, 2)); // ✅ Added debug logging
 
     try {
         const command = new PutEventsCommand({
@@ -33,17 +31,55 @@ exports.publishTranscriptionEvent = async (meeting) => {
 
         const result = await eventBridgeClient.send(command);
 
-        if (result.FailedEntryCount > 0) {
-            console.error('EventBridge failed entries:', result.Entries);
-            throw new Error('Failed to publish event');
-        }
-
-        console.log(`Transcription event published for meeting: ${meeting.id}`);
-        console.log('EventBridge result:', JSON.stringify(result, null, 2)); // ✅ Added debug logging
         return result;
 
     } catch (error) {
         console.error('Error publishing transcription event:', error);
         throw new Error(`Failed to publish event: ${error.message}`);
     }
+};
+
+async function triggerJiraTaskCreation(meetingId) {
+    const eventDetails = {
+        meetingId,
+        triggeredBy: "task-extraction-complete",
+        timestamp: new Date().toISOString()
+    };
+
+    const command = new PutEventsCommand({
+        Entries: [{
+            Source: "meeting.app",
+            DetailType: "Task Extraction Completed",
+            Detail: JSON.stringify(eventDetails),
+            Time: new Date()
+        }]
+    });
+
+    await eventBridgeClient.send(command);
+}
+
+
+async function triggerTaskExtraction(meetingId){
+    const eventDetails = {
+        meetingId,
+        triggeredBy: "transcription-complete-processor",
+        timestamp: new Date().toISOString()
+    }
+
+    const command = new PutEventsCommand({
+        Entries: [{
+            Source: 'meeting.app',
+            DetailType: 'Transcription Completed',
+            Detail: JSON.stringify(eventDetails),
+            Time: new Date()
+        }]
+    })
+
+    await eventBridgeClient.send(command)
+}
+
+module.exports = {
+    publishTranscriptionEvent,
+    triggerJiraTaskCreation,
+    triggerTaskExtraction
 };

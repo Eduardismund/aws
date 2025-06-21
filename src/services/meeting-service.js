@@ -21,7 +21,11 @@ exports.getMeetingById = async (meetingId) => {
         fileSize: meeting.fileSize || null,
         contentType: meeting.contentType || null,
         createdAt: meeting.createdAt,
-        updatedAt: meeting.updatedAt
+        updatedAt: meeting.updatedAt,
+        aiExtractedTasks: meeting.aiExtractedTasks || [],
+        aiMeetingSummary: meeting.aiMeetingSummary || null,
+        aiMeetingType: meeting.aiMeetingType || null,
+        taskExtractionStatus: meeting.taskExtractionStatus || 'pending'
     };
 };
 
@@ -98,20 +102,17 @@ function extractMeetingInfo(objectKey, fileMetadata) {
  * @returns {string} Meeting ID
  */
 function extractMeetingIdFromKey(objectKey){
-    // For keys like "meetings/meeting123/file.mp3", extract "meeting123"
     const parts = objectKey.split('/');
 
     if (parts[0] === 'meetings' && parts.length > 1) {
         return parts[1];
     }
 
-    // For keys like "meeting123_audio.mp3", extract "meeting123"
     const fileName = parts[parts.length - 1];
     const meetingIdMatch = fileName.match(/^([^_]+)_/);
     if (meetingIdMatch) {
         return meetingIdMatch[1];
     }
 
-    // For other formats, return a sanitized version of the filename
     return fileName.split('.')[0].replace(/[^a-zA-Z0-9-]/g, '-');
 };
