@@ -1,5 +1,6 @@
 const {createResponse, createErrorResponse} = require("../utils/api-utils");
 const {processCompletedTranscription, processFailedTranscription} = require("../services/transcription-service");
+const {triggerTaskExtraction} = require("../services/event-publisher");
 
 /**
  * Lambda function to process completed transcription jobs
@@ -12,7 +13,15 @@ exports.transcriptionCompleteProcessor = async (event) => {
             const jobStatus = event.detail.TranscriptionJobStatus;
 
             if (jobStatus === 'COMPLETED') {
-                await processCompletedTranscription(jobName);
+                const result = await processCompletedTranscription(jobName);
+
+                if(result.meetingId && result.success){
+                    try{
+                        await triggerTaskExtraction(result.meetingId);
+                    } catch(taskExtractionError){
+                        console.log(`Failed to extract tasks because of the error ${taskExtractionError.toString()}`)
+                    }
+                }
             } else if (jobStatus === 'FAILED') {
                 await processFailedTranscription(jobName, event.detail);
             }

@@ -16,6 +16,12 @@ Globals:
       AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
       AllowOrigin: "'*'"
 
+Parameters:
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    Description: CloudWatch logs retention period in days
+
 Resources:
   # DynamoDB table with stream enabled for transcription starter
   SampleTable:
@@ -225,17 +231,6 @@ Resources:
         Variables:
           AUDIO_BUCKET: !Ref MeetingAudioBucket
           SAMPLE_TABLE: !Ref SampleTable
-#      Events:
-#        DynamoDBStream:
-#          Type: DynamoDB
-#          Properties:
-#            Stream: !GetAtt SampleTable.StreamArn
-#            StartingPosition: TRIM_HORIZON
-#            BatchSize: 1
-#            MaximumBatchingWindowInSeconds: 5
-#            FilterCriteria:
-#              Filters:
-#                - Pattern: '{"eventName": ["INSERT"], "dynamodb": {"NewImage": {"status": {"S": ["uploaded"]}}}}'
 
   # Function: Handle transcription completion
   TranscriptionCompleteProcessorFunction:
@@ -259,9 +254,56 @@ Resources:
               Action:
                 - transcribe:GetTranscriptionJob
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: "*"
       Environment:
         Variables:
           AUDIO_BUCKET: !Ref MeetingAudioBucket
+          SAMPLE_TABLE: !Ref SampleTable
+
+  # Function: Handle task extraction
+
+  TaskExtractorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-TaskExtractorFunction"
+      Handler: src/handlers/task-extractor.taskExtractorHandler
+      MemorySize: 1024
+      Timeout: 300
+      Description: Extract actionable tasks from transcriptions using Bedrock Claude Sonnet 3.5
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SampleTable  # ← Fixed: was MeetingTable
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
+            - Effect: Allow
+              Action: [events:PutEvents]
+              Resource: "*"
+      Environment:
+        Variables:
+          SAMPLE_TABLE: !Ref SampleTable
+
+  JiraTaskCreationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-JiraTaskCreationFunction"
+      Handler: src/handlers/jira-task-creation.jiraTaskCreationHandler
+      MemorySize: 1024
+      Timeout: 300
+      Description: Create Jira tasks based on the tasks extracted using the Bedrock Claude Sonnet 3.5
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SampleTable
+        - Statement:
+            - Effect: Allow
+              Action: [events:PutEvents]
+              Resource: "*"
+      Environment:
+        Variables:
           SAMPLE_TABLE: !Ref SampleTable
 
   # EventBridge Rule for S3 uploads - SIMPLIFIED PATTERN
@@ -320,6 +362,32 @@ Resources:
         - Arn: !GetAtt TranscriptionCompleteProcessorFunction.Arn
           Id: "TranscriptionCompleteTarget"
 
+  TaskExtractionTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-TaskExtractionTriggerRule"
+      Description: Trigger task extraction when transcription completes
+      EventPattern:
+        source: ["meeting.app"]
+        detail-type: ["Transcription Completed"]
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt TaskExtractorFunction.Arn
+          Id: "TaskExtractionTarget"
+
+  JiraTaskCreationTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-JiraTaskCreationTriggerRule"
+      Description: Trigger Jira task creation when task extraction completes
+      EventPattern:
+        source: ["meeting.app"]
+        detail-type: ["Task Extraction Completed"]
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt JiraTaskCreationFunction.Arn
+          Id: "JiraTaskCreationTarget"
+
   # Lambda permissions for EventBridge
   AudioUploadEventPermission:
     Type: AWS::Lambda::Permission
@@ -345,7 +413,21 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt TranscriptionTriggerEventRule.Arn
 
+  TaskExtractionTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TaskExtractorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt TaskExtractionTriggerRule.Arn  # ← Fixed: was TaskExtractionTriggerRule
 
+  JiraTaskCreationTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref JiraTaskCreationFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt JiraTaskCreationTriggerRule.Arn  # ← Fixed: was TaskExtractionTriggerRule
 
   # CloudWatch Log Groups with retention
   PresignedUrlLogGroup:
@@ -384,6 +466,17 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${TranscriptionCompleteProcessorFunction}"
       RetentionInDays: 30
 
+  TaskExtractorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${TaskExtractorFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  JiraTaskCreationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${JiraTaskCreationFunction}"  # ← Fix: was JiraTackCreationFunction
+      RetentionInDays: !Ref LogRetentionDays
 Outputs:
   # API Endpoints
   ApiGatewayEndpoint:
@@ -441,3 +534,15 @@ Outputs:
     Value: !Ref TranscriptionCompleteProcessorFunction
     Export:
       Name: !Sub "${AWS::StackName}-TranscriptionCompleteFunction"
+
+  TaskExtractorFunctionName:
+    Description: "Task extractor function name"
+    Value: !Ref TaskExtractorFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-TaskExtractorFunction"
+
+  JiraTaskCreationFunctionName:
+    Description: "Jira task creation from extracted tasks"
+    Value: !Ref JiraTaskCreationFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-JiraTaskCreationFunction"
