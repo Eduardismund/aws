@@ -114,58 +114,6 @@ Resources:
             Path: /presigned-url
             Method: options
 
-  # Function: Query individual meetings
-  MeetingQueryFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "${AWS::StackName}-MeetingQueryFunction"
-      Handler: src/handlers/meeting-query.meetingQueryHandler
-      MemorySize: 128
-      Description: Query individual meeting data (AWS SDK v3)
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref SampleTable
-      Environment:
-        Variables:
-          SAMPLE_TABLE: !Ref SampleTable
-      Events:
-        GetMeetingApi:
-          Type: Api
-          Properties:
-            Path: /meeting/{meetingId}
-            Method: get
-        GetMeetingOptions:
-          Type: Api
-          Properties:
-            Path: /meeting/{meetingId}
-            Method: options
-
-  # Function: List all meetings
-  MeetingListFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "${AWS::StackName}-MeetingListFunction"
-      Handler: src/handlers/meeting-list.meetingListHandler
-      MemorySize: 128
-      Description: List all meetings with pagination (AWS SDK v3)
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref SampleTable
-      Environment:
-        Variables:
-          SAMPLE_TABLE: !Ref SampleTable
-      Events:
-        ListMeetingsApi:
-          Type: Api
-          Properties:
-            Path: /meetings
-            Method: get
-        ListMeetingsOptions:
-          Type: Api
-          Properties:
-            Path: /meetings
-            Method: options
-
   # Function: Process S3 uploads - ENHANCED
   AudioUploadProcessorFunction:
     Type: AWS::Serverless::Function
@@ -275,7 +223,7 @@ Resources:
       Description: Extract actionable tasks from transcriptions using Bedrock Claude Sonnet 3.5
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref SampleTable  # ← Fixed: was MeetingTable
+            TableName: !Ref SampleTable
         - Statement:
             - Effect: Allow
               Action: [bedrock:InvokeModel]
@@ -299,6 +247,9 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref SampleTable
         - Statement:
+            - Effect: Allow
+              Action: [ bedrock:InvokeModel ]
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
             - Effect: Allow
               Action: [events:PutEvents]
               Resource: "*"
@@ -436,18 +387,6 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${PresignedUrlFunction}"
       RetentionInDays: 30
 
-  MeetingQueryLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${MeetingQueryFunction}"
-      RetentionInDays: 30
-
-  MeetingListLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${MeetingListFunction}"
-      RetentionInDays: 30
-
   AudioUploadProcessorLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -490,18 +429,6 @@ Outputs:
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/presigned-url"
     Export:
       Name: !Sub "${AWS::StackName}-PresignedUrlEndpoint"
-
-  MeetingQueryEndpoint:
-    Description: "Meeting query endpoint"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/meeting/{meetingId}"
-    Export:
-      Name: !Sub "${AWS::StackName}-MeetingQueryEndpoint"
-
-  MeetingListEndpoint:
-    Description: "Meeting list endpoint"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/meetings"
-    Export:
-      Name: !Sub "${AWS::StackName}-MeetingListEndpoint"
 
   # Resource Names
   AudioBucketName:

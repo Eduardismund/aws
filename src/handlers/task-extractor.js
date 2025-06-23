@@ -1,7 +1,6 @@
 const {BedrockRuntimeClient, InvokeModelCommand} = require('@aws-sdk/client-bedrock-runtime');
 const {getMeetingById} = require('../services/meeting-service');
 const {triggerJiraTaskCreation} = require('../services/event-publisher');
-const {getCRMBoardMembers} = require('../services/jira-service');
 const {updateMeetingRecord} = require('../lib/dynamodbClient');
 
 const bedrockClient = new BedrockRuntimeClient({region: process.env.AWS_REGION});
@@ -24,9 +23,8 @@ exports.taskExtractorHandler = async (event) => {
             throw new Error(`No transcript found for meeting: ${meetingId}`)
         }
 
-        const boardMembers = await getCRMBoardMembers();
 
-        const extractedTasks = await extractTasksWithBedrock(meeting.fullTranscript, boardMembers)
+        const extractedTasks = await extractTasksWithBedrock(meeting.fullTranscript)
 
         await updateMeetingRecord(meetingId, {
             aiExtractedTasks: extractedTasks.tasks,
@@ -59,12 +57,10 @@ exports.taskExtractorHandler = async (event) => {
     }
 };
 
-async function extractTasksWithBedrock(transcript, boardMembers) {
-    const availableAssignees = boardMembers.map(member => member.displayName).join(', ');
+async function extractTasksWithBedrock(transcript) {
     const today = new Date().toISOString().split('T')[0];
 
     const prompt = `Extract actionable tasks from this meeting transcript. Return JSON only.
-Available team members in Jira: ${availableAssignees}.
 Today the date is: ${today}.
 
 TRANSCRIPT:
@@ -78,7 +74,7 @@ Return this exact JSON structure:
     {
       "title": "Task title",
       "description": "What needs to be done",
-      "assignee": "Person assigned from the available team members or 'unassigned'",
+      "assignee": "Person assigned or 'unassigned'",
       "priority": "low|medium|high",
       "dueDate": "YYYY-MM-DD format or null if not specified"
     }
@@ -90,8 +86,7 @@ Rules:
 - Include both explicit assignments and implied action items
 - Return empty tasks array if no actionable items exist
 - Return valid JSON only, no additional text
-- For dueDate: convert relative dates like "tomorrow", "next week", "by Friday" to YYYY-MM-DD format, compute it by analyzing today's date
-- If the name is partial, choose the closest match, and if there are multiple possible matches label 'unassigned'`;
+- For dueDate: convert relative dates like "tomorrow", "next week", "by Friday" to YYYY-MM-DD format, compute it by analyzing today's date`;
     const payload = {
         anthropic_version: "bedrock-2023-05-31",
         max_tokens: 4000,
@@ -100,7 +95,7 @@ Rules:
     };
 
     const command = new InvokeModelCommand({
-        modelId: 'anthropic.claude-3-5-sonnet-20240620-v1:0',  // ← Use this instead
+        modelId: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
         contentType: "application/json",
         accept: "application/json",
         body: JSON.stringify(payload)
@@ -114,28 +109,6 @@ Rules:
         throw new Error('Invalid response from Bedrock');
     }
 
-    const mappedTasks = extractedData.tasks.map(task => {
-        let assigneeId = 'unassigned';
-
-        if (task.assignee && task.assignee !== 'unassigned') {
-            const matchedMember = boardMembers.find(member =>
-                member.displayName.toLowerCase() === task.assignee.toLowerCase()
-            );
-
-            if (matchedMember) {
-                assigneeId = matchedMember.accountId;
-            }
-        }
-
-        return {
-            ...task,
-            assigneeId: assigneeId
-        };
-    });
-    return {
-        ...extractedData,
-        tasks: mappedTasks
-    }
-
+    return extractedData
 }
 

@@ -16,7 +16,6 @@ exports.audioUploadProcessor = async (event) => {
                 objectKey.includes('.write_access_check') ||
                 objectKey.includes('$folder$') ||
                 objectKey.endsWith('/')) {
-                console.log('Skipping system file:', objectKey);
                 return createResponse(200, 'System file ignored');
             }
 

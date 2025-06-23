@@ -1,4 +1,7 @@
 const axios = require('axios');
+const {BedrockRuntimeClient, InvokeModelCommand} = require('@aws-sdk/client-bedrock-runtime');
+const bedrockClient = new BedrockRuntimeClient({region: process.env.AWS_REGION});
+
 
 const JIRA_BASE_URL = "https://meetingtasksdemo.atlassian.net";
 const JIRA_EMAIL = "meetingtasks.demo@proton.me";
@@ -31,7 +34,47 @@ async function getCRMBoardMembers() {
     }))
 }
 
+async function findAssigneeId(assignee, users) {
+    if(!assignee || assignee === "unassigned" || users.length === 0){
+        return null;
+    }
+
+    const userList = users.map(user => `${user.displayName}:${user.accountId}`).join('\n');
+
+    const prompt = `Find the best match for "${assignee}" from this list:
+${userList}
+
+Return only the accountId of the best match, or "none" if no good match.`;
+
+    try{
+        const payload = {
+            anthropic_version: "bedrock-2023-05-31",
+            max_tokens: 100,
+            temperature: 0.1,
+            messages: [{ role: "user", content: prompt }]
+        };
+
+        const command = new InvokeModelCommand({
+            modelId: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+            contentType: "application/json",
+            accept: "application/json",
+            body: JSON.stringify(payload)
+        })
+
+        const response = await bedrockClient.send(command);
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+        const result = responseBody.content[0].text.trim();
+
+        return result === 'none' ? null : result;
+    } catch (error) {
+        console.log('Bedrock matching failed:', error.message);
+        return null;
+    }
+}
+
 async function createJiraTask(task, meetingId) {
+    const users = await getCRMBoardMembers();
+    const assigneeId = await findAssigneeId(task.assignee, users)
     try{
         const issueData = {
             fields: {
@@ -56,10 +99,8 @@ async function createJiraTask(task, meetingId) {
 
         }
 
-        if (task.assigneeId && task.assigneeId !== 'unassigned') {
-            issueData.fields.assignee = {
-                accountId: task.assigneeId
-            };
+        if (assigneeId) {
+            issueData.fields.assignee = { accountId: assigneeId };
         }
 
         const response = await axios.post(
