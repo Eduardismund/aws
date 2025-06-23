@@ -1,0 +1,9 @@
+{
+  "source": "meeting.app",
+  "detail-type": "Task Extraction Completed",
+  "detail": {
+    "meetingId": "meeting-1750668309",
+    "triggeredBy": "task-extraction-complete",
+    "timestamp": "2025-06-23T08:45:28.845Z"
+  }
+}
