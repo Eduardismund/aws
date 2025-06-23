@@ -267,21 +267,29 @@ Resources:
       FunctionName: !Sub "${AWS::StackName}-JiraTaskCreationFunction"
       Handler: src/handlers/jira-task-creation.jiraTaskCreationHandler
       MemorySize: 1024
-      Timeout: 300
+      Timeout: 60
       Description: Create Jira tasks based on the tasks extracted using the Bedrock Claude Sonnet 3.5
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SampleTable
         - Statement:
-            - Effect: Allow
-              Action: [ bedrock:InvokeModel ]
-              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
-            - Effect: Allow
-              Action: [events:PutEvents]
-              Resource: "*"
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+            Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
+          - Effect: Allow
+            Action: [events:PutEvents]
+            Resource: "*"
+        - Statement: # Add this policy block
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:jira-meeting-tasks-config*"
       Environment:
         Variables:
           SAMPLE_TABLE: !Ref SampleTable
+          JIRA_SECRET_NAME: "jira-meeting-tasks-config"  # Add this line
+
 
   # EventBridge Rule for S3 uploads - SIMPLIFIED PATTERN
   AudioUploadEventRule:

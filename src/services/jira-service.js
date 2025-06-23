@@ -1,27 +1,56 @@
 const axios = require('axios');
+const {SecretsManagerClient, GetSecretValueCommand} = require('@aws-sdk/client-secrets-manager');
 const {BedrockRuntimeClient, InvokeModelCommand} = require('@aws-sdk/client-bedrock-runtime');
+
+const secretsClient = new SecretsManagerClient({region: process.env.AWS_REGION});
 const bedrockClient = new BedrockRuntimeClient({region: process.env.AWS_REGION});
 
+let jiraConfig = null;
 
-const JIRA_BASE_URL = "https://meetingtasksdemo.atlassian.net";
-const JIRA_EMAIL = "meetingtasks.demo@proton.me";
-const JIRA_API_TOKEN = "secret";
-const JIRA_PROJECT_KEY = "CRM";
-const CRM_BOARD_ID = "1";
+async function getJiraConfig(){
+    if(jiraConfig){
+        return jiraConfig;
+    }
+
+    try{
+        const secretName = process.env.JIRA_SECRET_NAME;
+
+        const command = new GetSecretValueCommand({
+            SecretId: secretName
+        })
+
+        const response = await secretsClient.send(command);
+        const secret = JSON.parse(response.SecretString);
+
+        jiraConfig = {
+            baseUrl: secret.JIRA_BASE_URL,
+            email: secret.JIRA_EMAIL,
+            apiToken: secret.JIRA_API_TOKEN,
+            projectKey: secret.JIRA_PROJECT_KEY,
+            boardId: secret.JIRA_BOARD_ID
+        }
+        return jiraConfig;
+    } catch (error) {
+        console.error('❌ Failed to load Jira configuration:', error.message);
+        throw new Error('Failed to load Jira configuration from Secrets Manager');
+    }
+}
 
 async function getCRMBoardMembers() {
+    const config = await getJiraConfig();
+
     const response = await axios.get(
-        `${JIRA_BASE_URL}/rest/api/3/user/assignable/search`,
+        `${config.baseUrl}/rest/api/3/user/assignable/search`,
         {
             auth: {
-                username: JIRA_EMAIL,
-                password: JIRA_API_TOKEN
+                username: config.email,
+                password: config.apiToken
             },
             headers: {
                 'Accept' : 'application/json'
             },
             params:{
-                project: 'CRM',
+                project: config.projectKey,
                 maxResults: 1000,
             }
         }
@@ -86,18 +115,19 @@ Return only the accountId of the best match, or "none" if no good match.`;
 }
 
 async function createJiraTask(task, meetingId) {
-    console.log('🎫 Creating Jira task for:', JSON.stringify(task, null, 2));
+
+    const config = await getJiraConfig();
 
     const users = await getCRMBoardMembers();
-    console.log('👥 Found', users.length, 'CRM board members');
+    console.log('found', users.length, 'CRM board members');
 
     const assigneeId = await findAssigneeId(task.assignee, users);
-    console.log('🧑‍💼 Assignee ID found:', assigneeId);
+    console.log('assignee ID found:', assigneeId);
 
     try {
         const issueData = {
             fields: {
-                project: {key: JIRA_PROJECT_KEY},
+                project: {key: config.projectKey},
                 summary: task.title,
                 description: {
                     type: "doc",
@@ -118,15 +148,15 @@ async function createJiraTask(task, meetingId) {
             issueData.fields.assignee = { accountId: assigneeId };
         }
 
-        console.log('📤 Sending to Jira:', JSON.stringify(issueData, null, 2));
+        console.log('sending to Jira:', JSON.stringify(issueData, null, 2));
 
         const response = await axios.post(
-            `${JIRA_BASE_URL}/rest/api/3/issue`,
+            `${config.baseUrl}/rest/api/3/issue`,
             issueData,
             {
                 auth: {
-                    username: JIRA_EMAIL,
-                    password: JIRA_API_TOKEN
+                    username: config.email,
+                    password: config.apiToken
                 },
                 headers: {
                     'Accept': 'application/json',
@@ -136,7 +166,7 @@ async function createJiraTask(task, meetingId) {
         );
 
         const issueKey = response.data.key;
-        const issueUrl = `${JIRA_BASE_URL}/browse/${issueKey}`;
+        const issueUrl = `${config.baseUrl}/browse/${issueKey}`;
 
         console.log('✅ Jira task created successfully:', issueKey);
         return {
