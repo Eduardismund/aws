@@ -1,6 +1,6 @@
 const {S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand} = require('@aws-sdk/client-s3');
 const {getSignedUrl} = require('@aws-sdk/s3-request-presigner');
-const {generateUniqueFileName} = require('../utils/file-utils.js');
+const {randomUUID} = require("crypto");
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'eu-central-1'
@@ -76,4 +76,16 @@ exports.getFileMetadata = async (bucketName, objectKey) => {
         }
         throw new Error(`Failed to get the file metadata: ${error.message}`)
     }
+}
+
+function generateUniqueFileName(originalFileName, meetingId = null){
+    const fileExtension = originalFileName.split('.').pop();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const uuid = randomUUID();
+
+    if (meetingId) {
+        return `meetings/${meetingId}/${timestamp}-${uuid}.${fileExtension}`;
+    }
+
+    return `uploads/${timestamp}-${uuid}.${fileExtension}`;
 }

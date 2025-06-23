@@ -3,8 +3,6 @@ const {generatePresignedUrl} = require('../services/s3-service.js');
 const {validatePresignedUrlRequest} = require('../utils/validation-utils.js');
 
 exports.presignedUrlHandler = async (event) => {
-
-
     if (event.httpMethod === 'OPTIONS') {
         return createOptionsResponse();
     }
@@ -12,7 +10,6 @@ exports.presignedUrlHandler = async (event) => {
     try {
         const requestData = parseRequestBody(event.body);
         const validationResult = validatePresignedUrlRequest(requestData);
-
 
         if (!validationResult.isValid) {
             return createErrorResponse(400, validationResult.error);

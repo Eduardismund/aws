@@ -6,7 +6,6 @@
 exports.parseS3Event = (event) => {
     const uploads = [];
 
-    // Handle EventBridge events from S3
     if (event.source === 'aws.s3' && event['detail-type'] === 'Object Created') {
         uploads.push({
             bucketName: event.detail.bucket.name,
@@ -17,7 +16,6 @@ exports.parseS3Event = (event) => {
             objectETag: event.detail.object.etag
         });
     }
-    // Handle direct S3 events (for testing or legacy configurations)
     else if (event.Records) {
         for (const record of event.Records) {
             if (record.eventSource === 'aws:s3' && record.eventName.startsWith('ObjectCreated')) {

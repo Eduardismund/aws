@@ -12,7 +12,7 @@ exports.transcriptionStarter = async (event) => {
         let meetingData;
         if (event.source === 'meeting.app' && event['detail-type'] === 'Meeting Ready for Transcription') {
             const { meetingId, bucketName, objectKey, fileName } = event.detail;
-
+q
             meetingData = {
                 meetingId: meetingId,
                 s3Bucket: bucketName,
@@ -38,6 +38,6 @@ exports.transcriptionStarter = async (event) => {
         });
 
     } catch (error) {
-        return createErrorResponse(500, `Transcription failed: ${error.message}`);  // ✅ Better
+        return createErrorResponse(500, `Transcription failed: ${error.message}`);
     }
 };
