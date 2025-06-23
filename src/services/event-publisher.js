@@ -11,6 +11,9 @@ const eventBridgeClient = new EventBridgeClient({
  * @returns {Object} Event result
  */
 async function publishTranscriptionEvent(meeting){
+    console.log('📧 Publishing transcription event...');
+    console.log('📄 Meeting object received:', JSON.stringify(meeting, null, 2));
+
     const event = {
         Source: 'meeting.app',
         DetailType: 'Meeting Ready for Transcription',
@@ -23,6 +26,7 @@ async function publishTranscriptionEvent(meeting){
         })
     };
 
+    console.log('📤 Event to publish:', JSON.stringify(event, null, 2));
 
     try {
         const command = new PutEventsCommand({
@@ -30,15 +34,20 @@ async function publishTranscriptionEvent(meeting){
         });
 
         const result = await eventBridgeClient.send(command);
+        console.log('✅ Event published successfully!', JSON.stringify(result, null, 2));
+
+        // Check if there were any failed entries
+        if (result.FailedEntryCount > 0) {
+            console.error('❌ Some events failed:', result.Entries);
+        }
 
         return result;
 
     } catch (error) {
-        console.error('Error publishing transcription event:', error);
+        console.error('❌ Error publishing transcription event:', error);
         throw new Error(`Failed to publish event: ${error.message}`);
     }
 };
-
 async function triggerJiraTaskCreation(meetingId) {
     const eventDetails = {
         meetingId,
