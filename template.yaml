@@ -114,6 +114,32 @@ Resources:
             Path: /presigned-url
             Method: options
 
+  # Function: Query individual meetingsAdd commentMore actions
+  MeetingQueryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-MeetingQueryFunction"
+      Handler: src/handlers/meeting-query.meetingQueryHandler
+      MemorySize: 128
+      Description: Query individual meeting data (AWS SDK v3)
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SampleTable
+      Environment:
+        Variables:
+          SAMPLE_TABLE: !Ref SampleTable
+      Events:
+        GetMeetingApi:
+          Type: Api
+          Properties:
+            Path: /meeting/{meetingId}
+            Method: get
+        GetMeetingOptions:
+          Type: Api
+          Properties:
+            Path: /meeting/{meetingId}
+            Method: options
+
   # Function: Process S3 uploads - ENHANCED
   AudioUploadProcessorFunction:
     Type: AWS::Serverless::Function
@@ -387,6 +413,14 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${PresignedUrlFunction}"
       RetentionInDays: 30
 
+
+  MeetingQueryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${MeetingQueryFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
+
   AudioUploadProcessorLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -442,6 +476,8 @@ Outputs:
     Value: !Ref SampleTable
     Export:
       Name: !Sub "${AWS::StackName}-DynamoDBTable"
+
+
 
   # Function Names for debugging
   AudioUploadProcessorFunctionName:

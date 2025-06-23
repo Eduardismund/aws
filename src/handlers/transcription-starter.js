@@ -12,7 +12,6 @@ exports.transcriptionStarter = async (event) => {
         let meetingData;
         if (event.source === 'meeting.app' && event['detail-type'] === 'Meeting Ready for Transcription') {
             const { meetingId, bucketName, objectKey, fileName } = event.detail;
-q
             meetingData = {
                 meetingId: meetingId,
                 s3Bucket: bucketName,

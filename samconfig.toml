@@ -3,7 +3,7 @@
 version = 0.1
 
 [default.global.parameters]
-stack_name = "smart-meeting-engine"
+stack_name = "jira-meeting-tasks"
 
 [default.build.parameters]
 cached = true
@@ -13,14 +13,9 @@ parallel = true
 lint = true
 
 [default.deploy.parameters]
-capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
-s3_prefix = "asa-si-eu-no-tu-ioi"
-region = "eu-central-1"
-disable_rollback = true
-image_repositories = []
-stack_name = "asa-si-eu-no-tu-ioi"
 
 [default.package.parameters]
 resolve_s3 = true
