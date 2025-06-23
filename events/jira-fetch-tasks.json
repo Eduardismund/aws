@@ -1,0 +1,15 @@
+{
+  "httpMethod": "GET",
+  "path": "/jira/tasks",
+  "headers": {
+    "Accept": "application/json",
+    "Content-Type": "application/json"
+  },
+  "queryStringParameters": null,
+  "body": null,
+  "isBase64Encoded": false,
+  "requestContext": {
+    "httpMethod": "GET",
+    "path": "/jira/tasks"
+  }
+}

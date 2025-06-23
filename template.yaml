@@ -290,6 +290,35 @@ Resources:
           SAMPLE_TABLE: !Ref SampleTable
           JIRA_SECRET_NAME: "jira-meeting-tasks-config"  # Add this line
 
+  JiraTaskFetcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-JiraTaskFetcherFunction"
+      Handler: src/handlers/jira-tasks-fetch.jiraTasksFetchHandler
+      MemorySize: 256
+      Timeout: 30
+      Description: Fetch Jira tasks from API Gateway
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:jira-meeting-tasks-config*"
+      Environment:
+        Variables:
+          JIRA_SECRET_NAME: "jira-meeting-tasks-config"
+      Events:
+        GetTasksApi:
+          Type: Api
+          Properties:
+            Path: /jira/tasks
+            Method: get
+        GetTasksOptions:
+          Type: Api
+          Properties:
+            Path: /jira/tasks
+            Method: options
+
 
   # EventBridge Rule for S3 uploads - SIMPLIFIED PATTERN
   AudioUploadEventRule:
