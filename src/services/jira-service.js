@@ -63,7 +63,6 @@ async function getCRMBoardMembers() {
     }))
 }
 
-
 async function findAssigneeId(assignee, users) {
     console.log('the assignee to find:', assignee);
 
@@ -191,6 +190,53 @@ async function createJiraTask(task, meetingId) {
         };
     }
 }
+
+async function fetchJiraTasks(){
+    const config = await getJiraConfig();
+
+    try{
+        const jql = `project = ${config.projectKey} ORDER BY updated DESC`;
+
+        const response = await axios.get(`${config.baseUrl}/rest/api/3/search`,
+            {
+                auth: {
+                    username: config.email,
+                    password: config.apiToken
+                },
+                headers: {
+                    'Accept': 'application/json'
+                },
+                params: {
+                    jql: jql,
+                    maxResults: 50,
+                    fields: 'summary,status,assignee,priority,created,updated'
+                }
+
+            });
+        const tasks = response.data.issues.map(issue => ({
+            key: issue.key,
+            title: issue.fields.summary,
+            status: issue.fields.status.name,
+            assignee: issue.fields.assignee?.displayName || 'Unassigned',
+            priority: issue.fields.priority?.name || 'None',
+            created: issue.fields.created,
+            updated: issue.fields.updated,
+            url: `${config.baseUrl}/browse/${issue.key}`
+        }));
+
+        return tasks;
+    } catch (error) {
+        console.error('Jira fetch API Error:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            message: error.message
+        });
+        throw new Error(`Failed to fetch Jira tasks: ${error.message}`);
+    }
+}
+
 module.exports = {
-    createJiraTask
+    createJiraTask,
+    fetchJiraTasks
 };
