@@ -21,7 +21,7 @@ exports.validatePresignedUrlRequest = (data) => {
         return { isValid: false, error: `File size cannot exceed ${MAX_FILE_SIZE / (1024 * 1024)}MB` };
     }
 
-    const allowedExtensions = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.wma'];
+    const allowedExtensions = ['.mp3', '.wav', '.m4a'];
     const fileExtension = '.' + fileName.split('.').pop().toLowerCase();
 
     if (!allowedExtensions.includes(fileExtension)) {
