@@ -1,25 +1,20 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Play, Pause, File, Volume2, X } from 'lucide-react';
+import { Upload, File, X } from 'lucide-react';
 
-const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.execute-api.eu-central-1.amazonaws.com/Prod"}) => {
+const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = import.meta.env.VITE_API_BASE_URL }) => {
     const [file, setFile] = useState(null);
-    const [mediaUrl, setMediaUrl] = useState(null);
-    const [isPlaying, setIsPlaying] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
 
     const fileInputRef = useRef(null);
-    const mediaRef = useRef(null);
 
     function handleFileProcess(file) {
-        if (file && (file.type.startsWith('audio/') || file.type.startsWith('video/'))) {
+        if (file && file.type.startsWith('audio/')) {
             setFile(file);
-            const url = URL.createObjectURL(file);
-            setMediaUrl(url);
             setUploadStatus(`Selected: ${file.name}`);
-        }  else {
-            setUploadStatus('Please select a valid audio or video file');
+        } else {
+            setUploadStatus('Please select a valid audio file');
         }
     }
 
@@ -86,22 +81,9 @@ const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.exe
         }
     };
 
-    const togglePlayback = () => {
-        if (mediaRef.current) {
-            if (isPlaying) {
-                mediaRef.current.pause();
-            } else {
-                mediaRef.current.play();
-            }
-            setIsPlaying(!isPlaying);
-        }
-    };
-
     const resetForm = () => {
         setFile(null);
-        setMediaUrl(null);
         setUploadStatus('');
-        setIsPlaying(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
@@ -113,8 +95,6 @@ const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.exe
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    const isVideo = file?.type.startsWith('video/');
-
     const getToastClass = () => {
         if (uploadStatus.includes('✅')) return 'audio-upload-toast success';
         if (uploadStatus.includes('❌')) return 'audio-upload-toast error';
@@ -122,14 +102,13 @@ const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.exe
     };
 
     return (
-        <div className="audio-upload-container ">
-
-            <div className={`audio-upload-content ${file ? 'two-columns' : 'single-column'}`}>
+        <div className="audio-upload-container">
+            <div className="audio-upload-content single-column">
                 <div className="audio-upload-panel">
                     {!file ? (
                         <>
                             <div className="audio-upload-panel-header">
-                                <h2>Upload Files</h2>
+                                <h2>Upload Audio Files</h2>
                                 <p>Drag & drop or click to browse</p>
                             </div>
 
@@ -144,8 +123,8 @@ const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.exe
                                     <Upload size={24} color="white" />
                                 </div>
                                 <div>
-                                    <h3>{isDragOver ? 'Drop here' : 'Select Files'}</h3>
-                                    <p>MP3, WAV, MP4</p>
+                                    <h3>{isDragOver ? 'Drop here' : 'Select Audio Files'}</h3>
+                                    <p>MP3, WAV, M4A, OGG</p>
                                     <div className="audio-upload-browse-btn">
                                         <File size={14} />
                                         Browse
@@ -166,8 +145,8 @@ const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.exe
                                             <span className="audio-upload-file-size">
                                                 {formatFileSize(file.size)}
                                             </span>
-                                            <span className={`audio-upload-file-type ${isVideo ? 'video' : 'audio'}`}>
-                                                {isVideo ? 'Video' : 'Audio'}
+                                            <span className="audio-upload-file-type audio">
+                                                Audio
                                             </span>
                                         </div>
                                     </div>
@@ -200,49 +179,11 @@ const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.exe
                     <input
                         ref={fileInputRef}
                         type="file"
-                        accept="audio/*,video/mp4"
+                        accept="audio/*"
                         onChange={handleFileSelect}
                         className="audio-upload-input"
                     />
                 </div>
-
-                {/* Preview Panel */}
-                {file && (
-                    <div className="audio-upload-panel">
-                        <div className="audio-upload-preview-header">
-                            <h2>Preview</h2>
-                            <button onClick={togglePlayback} className="audio-upload-play-btn">
-                                {isPlaying ? <Pause size={12} /> : <Play size={12} />}
-                                {isPlaying ? 'Pause' : 'Play'}
-                            </button>
-                        </div>
-
-                        {mediaUrl && (
-                            <div className="audio-upload-media-preview">
-                                {isVideo ? (
-                                    <video
-                                        ref={mediaRef}
-                                        src={mediaUrl}
-                                        onEnded={() => setIsPlaying(false)}
-                                        className="audio-upload-video"
-                                        controls
-                                    />
-                                ) : (
-                                    <div className="audio-upload-audio-container">
-                                        <Volume2 size={32} color="white" />
-                                        <audio
-                                            ref={mediaRef}
-                                            src={mediaUrl}
-                                            onEnded={() => setIsPlaying(false)}
-                                            className="audio-upload-audio"
-                                            controls
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                )}
             </div>
 
             {uploadStatus && (

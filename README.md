@@ -1,160 +1,300 @@
-# smart-meeting-engine
+# Smart meeting task extractor - AWS Lambda Hackathon Submission
 
-This project contains source code and supporting files for a serverless application that you can deploy with the AWS Serverless Application Model (AWS SAM) command line interface (CLI). It includes the following files and folders:
+## Project Overview
 
-- `src` - Code for the application's Lambda function.
-- `events` - Invocation events that you can use to invoke the function.
-- `__tests__` - Unit tests for the application code. 
-- `template.yaml` - A template that defines the application's AWS resources.
+**Brief Description**: This application has focuses on automating meetings by being able to upload an audio or video file and using AWS Lambda services to have the corresponding task extracted and posted to Jira. 
 
-The application uses several AWS resources, including Lambda functions, an API Gateway API, and Amazon DynamoDB tables. These resources are defined in the `template.yaml` file in this project. You can update the template to add AWS resources through the same deployment process that updates your application code.
+**Problem Statement**: This project aims to solve an issue that most businesses face: those boring but necessary 
+meetings that end up with people being assigned tasks. Having to actively pay attention and note what needs to be assigned as a task is frustrating and can result in mismatching a task to the assignee or other human error that we are prone to. 
 
-If you prefer to use an integrated development environment (IDE) to build and test your application, you can use the AWS Toolkit.  
-The AWS Toolkit is an open-source plugin for popular IDEs that uses the AWS SAM CLI to build and deploy serverless applications on AWS. The AWS Toolkit also adds step-through debugging for Lambda function code. 
+**Solution Summary**: The way I propose to solve this problem is using my Smart Meeting Task Extractor. The user faces a React app, where he or she can upload an mp3 or video of that meeting, that will ultimately be transcribed, analyzed and transformed into Jira tasks.
 
-To get started, see the following:
+## Architecture & AWS Lambda Usage
 
-* [CLion](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [GoLand](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [IntelliJ](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [WebStorm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [Rider](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [PhpStorm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [PyCharm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [RubyMine](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [DataGrip](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [VS Code](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/welcome.html)
-* [Visual Studio](https://docs.aws.amazon.com/toolkit-for-visual-studio/latest/user-guide/welcome.html)
+### Core Lambda Functions
 
-## Deploy the sample application
+#### 1. `presignedUrlHandler` - File Upload Handler
+- **Purpose**: Provides secure, temporary URLs for direct file uploads to S3 without exposing AWS credentials
+- **Trigger**: API Gateway HTTP requests
+- **AWS Services Used**: S3, API Gateway
 
-The AWS SAM CLI is an extension of the AWS CLI that adds functionality for building and testing Lambda applications. It uses Docker to run your functions in an Amazon Linux environment that matches Lambda. It can also emulate your application's build environment and API.
+#### 2. `audioUploadProcessor` - S3 Event Processor
+- **Purpose**: The user uploads an audio/ video file from the user-facing application and this function handles the storage
+of the file metadata to DynamoDB and triggers the transcription workflow
+- **Trigger**: S3 Object Created events via EventBridge
+- **AWS Services Used**: S3, EventBridge, DynamoDB
 
-To use the AWS SAM CLI, you need the following tools:
+#### 3. `meetingQueryHandler` - API Query Handler
+- **Purpose**: Provides real-time status updates and meeting information to the frontend application
+- **Trigger**: API Gateway HTTP requests
+- **AWS Services Used**: DynamoDB, API Gateway
 
-* AWS SAM CLI - [Install the AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html).
-* Node.js - [Install Node.js 20](https://nodejs.org/en/), including the npm package management tool.
-* Docker - [Install Docker community edition](https://hub.docker.com/search/?type=edition&offering=community).
+#### 4. `transcriptionStarter` - Transcription Job Initiator
+- **Purpose**: Orchestrates the speech-to-text conversion process for uploaded meeting recordings.
+- **Trigger**: Custom EventBridge events ("Meeting Ready for Transcription")
+- **AWS Services Used**: Amazon Transcribe, DynamoDB, EventBridge
+- **Key Features**:
+- Automatic transcription job creation with optimal settings
+- Status tracking and database updates
+- Error handling for unsupported audio formats
+- Integration with EventBridge for workflow orchestration
 
-To build and deploy your application for the first time, run the following in your shell:
+#### 5. `transcriptionCompleteProcessor` - Transcription Result Handler
+- **Purpose**: Processes completed transcription results and triggers the AI-powered task execution workflow
+- **Trigger**: Amazon Transcribe job state change events
+- **AWS Services Used**: Amazon Transcribe, DynamoDB, EventBridge
+
+#### 6. `taskExtractorHandler` - AI Task Extraction
+- **Purpose**: Uses advanced AI to analyze meetings transcripts and extract actionable tasks with assignee, priorities and due dates.
+- **Trigger**: Custom EventBridge events ("Transcription Complete")
+- **AWS Services Used**: Amazon Bedrock (Claude), DynamoDB, EventBridge
+
+
+#### 7. `jiraTaskAnalyzerHandler` - AI-Powered Task Analysis
+- **Purpose**: Analyzes extracted meeting tasks using AI to determine which should be created as new Jira tickets versus which should update existing tickets.
+Prevents duplicate work and maintains workflow continuity.
+- **Trigger**: Custom EventBridge events ("Task Extraction Completed")
+- **AWS Services Used**: Amazon Bedrock (Claude), DynamoDB, EventBridge
+- **Key Features**:
+    - Intelligent task deduplication using AI analysis
+    - Comparison with existing Jira tickets
+    - User matching and assignment validation
+    - Workflow orchestration for creation/update operations
+
+#### 8. `jiraTaskCreationHandler` - New Task Creation
+- **Purpose**: Creates new Jira tickets from meeting-extracted tasks that don't match existing work items. Handles user assignment, priority setting, and proper task formatting.
+- **Trigger**: Custom EventBridge events ("Tasks Ready for Creation")
+- **AWS Services Used**: External Jira API, DynamoDB
+- **Key Features**:
+    - Automated ticket creation with proper formatting
+    - User account matching and assignment
+    - Error handling and retry logic
+    - Status tracking and result reporting
+
+#### 9. `jiraTaskUpdateHandler` - Existing Task Updates
+- **Purpose**: Updates existing Jira tickets based on meeting discussions, including status changes, reassignments, and progress updates. Maintains project continuity by avoiding task duplication.
+- **Trigger**: Custom EventBridge events ("Tasks Ready for Update")
+- **AWS Services Used**: External Jira API, DynamoDB
+- **Key Features**:
+    - Status transition handling (To Do → In Progress → Done)
+    - Assignee reassignment capabilities
+    - Progress tracking and comment updates
+    - Comprehensive error handling and logging
+
+### Lambda Triggers Used
+
+**API Gateway**:
+- REST endpoints for file upload URLs and meeting queries
+- CORS-enabled for web application integration
+- Handles user-initiated requests for presigned URLs and meeting data
+
+**EventBridge**:
+- Custom event patterns for workflow orchestration
+- Inter-service communication without tight coupling
+- Event-driven architecture enabling scalable, loosely coupled microservices
+
+**S3 Events**:
+- Object creation events trigger automatic processing
+- Serverless file processing pipeline
+
+**Amazon Transcribe Events**:
+- Job state change notifications for workflow progression
+- Automated transcription result handling
+- Integration with AWS native services for seamless integration
+
+### AWS Services Integration
+
+**AWS Lambda**: Core serverless compute service powering the entire application with automatic scaling, pay-per-execution 
+pricing, and event-driven architecture. Each function has a single responsibility and communicates via events.
+
+**Amazon S3**: Secure file storage for audio/video uploads with event triggers. Handles large media files efficiently 
+with presigned URLs for direct uploads.
+
+**Amazon DynamoDB**: NoSQL database for storing meeting metadata, transcription results, extracted tasks, and Jira integration status.
+Provides fast, scalable data persistence.
+
+**Amazon Transcribe**: AI-powered speech-to-text service that converts uploaded audio/video files into accurate transcriptions
+for further processing.
+
+**Amazon Bedrock**: Advanced AI service using Claude 3.5 Sonnet for intelligent task extraction, meeting summarization, and natural language understanding.
+
+**Amazon EventBridge**: Event bus enabling loose coupling between services. Orchestrates the entire workflow from file upload to Jira ticket creation.
+
+**API Gateway**: RESTful API endpoints for frontend integration with built-in CORS support, request validation, and Lambda integration.
+
+## AI Processing Pipeline
+
+### Task Extraction Intelligence
+The system uses **Amazon Bedrock with Claude 3.5 Sonnet** for sophisticated meeting analysis:
+
+**Task Classification**:
+- **"done"**: Completed work ("it's done")
+- **"in progress"**: Active work ("x% done")
+- **"to do"**: Newly assigned or upcoming work
+
+**Smart Filtering**:
+- Excludes routine check-ins and status meetings
+- Focuses on actionable work items
+- Captures both new assignments and progress updates
+
+### Jira Integration Intelligence
+- **User Matching**: AI-powered fuzzy matching for assignee names
+- **Task Deduplication**: Prevents duplicate tickets using existing task analysis
+- **Smart Updates**: Identifies when to update vs create based on task similarity
+- **Status Transitions**: Automatic workflow state management
+
+## API Reference
+
+### Available Endpoints
+
+| Method | Endpoint | Purpose | Request Body |
+|--------|----------|---------|--------------|
+| POST | `/presigned-url` | Get upload URL | `{meetingId, fileName, contentType}` |
+| GET | `/meeting/{meetingId}` | Get meeting status | None |
+| GET | `/jira/tasks` | List Jira tasks | None |
+
+## Features & Functionality
+
+### Core Features
+
+1. **Secure file upload**: Direct S3 uploads using presigned URLs for audio/video files up to several GB in size
+2. **Automatic transcription**: AI-powered speech-to-text conversion with support for multiple audio formats
+3. **Intelligent Task Extraction**: Advanced AI analysis that processes natural language and extracts actionable tasks with assignees, priorities, task summary and due dates
+4. **Jira integration**: Automatic creation of properly formatted Jira tasks based on extracted tasks with further AI-processing for exact assignee Jira account match.
+5. **Real-time Status Tracking**: Live update on processing status form upload to Jira ticket creation.
+
+### User Workflow
+
+1. **Upload Meeting Record**: User uploads audio/video file through React frontend
+2. **Automatic Processing**: System transcribes audio, extracts tasks, and creates Jira tickets automatically
+3. **Review Results**: User can switch to Jira tasks view from the main page and the created tasks will be fetched and
+shown on the in-page board to see the end results.
+
+## Technical Implementation
+
+### Serverless Architecture Benefits
+
+**Automatic Scaling**: Lambda functions scale automatically from zero to thousands of concurrent executions
+based on demand. No infrastructure management required.
+
+**Cost Efficiency**: Pay-per-execution model means cost scale directly with usage. No idle server costs during low activity periods.
+
+**Event-Driven Design**: Loose coupling between components through EventBridge enables independent scaling and deployment of each service.
+
+**Microservices Pattern**: Each Lambda function has a single responsibility, making the system maintainable, testable and scalable.
+
+### Best Practices Implemented
+
+**Error Handling**: Comprehensive try-catch blocks, structured logging with request IDs, and graceful error responses with appropriate HTTP status codes.
+
+**Logging & Monitoring**: CloudWatch integration for monitoring function performance, duration, and error rates. Structured logging for debugging.
+
+**Security**: IAM roles with least privilege access, API authentication, secure presigned URLs with expiration, and encrypted data storage. 
+
+**Code Organization**: Modular architecture with separate utility functions, service layers, and clear separations of concerns.
+
+## Setup & Deployment
+
+### Prerequisites
+- AWS Account with appropriate permissions for Lambda, S3, DynamoDB, Transcribe, Bedrock
+- Node.js 20+ for Lambda runtime
+- AWS CLI configured with deployment credentials
+- Jira instance with API access and admin permissions
+- React development environment (Node.js, npm/yarn)
+- AWS SAM CLI or CDK for infrastructure deployment
+
+### Environment Variables & Configuration
 
 ```bash
+  # AWS Configuration
+AWS_REGION=eu-central-1
+DYNAMODB_TABLE_NAME=meeting-records
+AUDIO_BUCKET=smart-meeting-uploads
+EVENTBRIDGE_BUS_NAME=meeting-events
+
+# Jira Integration (stored in AWS Secrets Manager)
+JIRA_SECRET_NAME=jira-meeting-tasks-config
+
+# AI Configuration
+BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20240620-v1:0
+
+# API Configuration
+CORS_ORIGIN=http://localhost:5173
+
+# Frontend Environment Variables (.env)
+VITE_API_BASE_URL=https://mt8d9y8i79.execute-api.eu-central-1.amazonaws.com/Prod
+VITE_APP_TITLE=Smart Meeting Task Extractor
+```
+
+## Deployment Steps
+
+1. **Clone and Setup Repository**:
+
+```bash
+# Clone repository
+git clone https://github.com/Eduardismund/aws
+cd smart-meeting-extractor
+
+# Install dependencies
+npm install
+
+# Configure AWS credentials
+aws configure
+# Enter your AWS Access Key ID, Secret Access Key, and set region to eu-central-1
+```
+2. **Configure Jira Integration**:
+
+```bash
+# Create Jira API credentials secret in AWS Secrets Manager
+aws secretsmanager create-secret \
+  --name "jira-meeting-tasks-config" \
+  --description "Jira credentials for meeting tasks integration" \
+  --secret-string '{"JIRA_BASE_URL": "https://meetingtasksdemo.atlassian.net", "JIRA_EMAIL": "meetingtasks.demo@proton.me", "JIRA_API_TOKEN": "ATATT3xFfGF0ovjrs6CX445yaatTd-r-EJo5iFsIUHMS_7CU2ieB6EkF8g4yHGdfdlqL-wgBl0ExKY8A5rUmPoSqn46ya8E4C4T42CTifQ6ga3HCNxt07e0brp4z6oB5c5PAdt6-AZUUDJzhg6McC5AN9myIc0yxc-h3N6dPZzC-dFlA7mARLxc=FE4A5569", "JIRA_PROJECT_KEY": "CRM", "JIRA_BOARD_ID": "1"}' \
+  --region eu-central-1
+
+# Verify secret creation
+aws secretsmanager get-secret-value \
+  --secret-id "jira-meeting-tasks-config" \
+  --region eu-central-1
+```
+
+3. **Infrastructure Deployment**
+
+```bash
+# Build Lambda functions
 sam build
-sam deploy --guided
+
+# Deploy infrastructure (production command used)
+sam deploy \
+  --stack-name asa-si-eu-no-tu-ioi \
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+  --region eu-central-1 \
+  --resolve-s3 \
+  --force-upload \
+  --no-confirm-changeset
+
+# Alternative: Guided deployment for first-time setup
+# sam deploy --guided
 ```
 
-The first command will build the source of your application. The second command will package and deploy your application to AWS, with a series of prompts:
-
-* **Stack Name**: The name of the stack to deploy to CloudFormation. This should be unique to your account and region, and a good starting point would be something matching your project name.
-* **AWS Region**: The AWS region you want to deploy your app to.
-* **Confirm changes before deploy**: If set to yes, any change sets will be shown to you before execution for manual review. If set to no, the AWS SAM CLI will automatically deploy application changes.
-* **Allow SAM CLI IAM role creation**: Many AWS SAM templates, including this example, create AWS IAM roles required for the AWS Lambda function(s) included to access AWS services. By default, these are scoped down to minimum required permissions. To deploy an AWS CloudFormation stack which creates or modifies IAM roles, the `CAPABILITY_IAM` value for `capabilities` must be provided. If permission isn't provided through this prompt, to deploy this example you must explicitly pass `--capabilities CAPABILITY_IAM` to the `sam deploy` command.
-* **Save arguments to samconfig.toml**: If set to yes, your choices will be saved to a configuration file inside the project, so that in the future you can just re-run `sam deploy` without parameters to deploy changes to your application.
-
-The API Gateway endpoint API will be displayed in the outputs when the deployment is complete.
-
-## Use the AWS SAM CLI to build and test locally
-
-Build your application by using the `sam build` command.
+4. **Frontend Development & Deployment**
 
 ```bash
-my-application$ sam build
+# Navigate to frontend directory
+cd frontend
+
+# Install React dependencies
+npm install
+
+# Start development server with Vite
+npm run dev
+
+# Output:
+# VITE v6.3.5  ready in 441 ms
+# ➜  Local:   http://localhost:5173/
+# ➜  Network: use --host to expose
+# ➜  press h + enter to show help
+
+# Access the application at http://localhost:5173/
 ```
 
-The AWS SAM CLI installs dependencies that are defined in `package.json`, creates a deployment package, and saves it in the `.aws-sam/build` folder.
-
-Test a single function by invoking it directly with a test event. An event is a JSON document that represents the input that the function receives from the event source. Test events are included in the `events` folder in this project.
-
-Run functions locally and invoke them with the `sam local invoke` command.
-
-```bash
-my-application$ sam local invoke putItemFunction --event events/event-post-item.json
-my-application$ sam local invoke getAllItemsFunction --event events/event-get-all-items.json
-```
-
-The AWS SAM CLI can also emulate your application's API. Use the `sam local start-api` command to run the API locally on port 3000.
-
-```bash
-my-application$ sam local start-api
-my-application$ curl http://localhost:3000/
-```
-
-The AWS SAM CLI reads the application template to determine the API's routes and the functions that they invoke. The `Events` property on each function's definition includes the route and method for each path.
-
-```yaml
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            Path: /
-            Method: GET
-```
-
-## Add a resource to your application
-The application template uses AWS SAM to define application resources. AWS SAM is an extension of AWS CloudFormation with a simpler syntax for configuring common serverless application resources, such as functions, triggers, and APIs. For resources that aren't included in the [AWS SAM specification](https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md), you can use the standard [AWS CloudFormation resource types](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-template-resource-type-ref.html).
-
-Update `template.yaml` to add a dead-letter queue to your application. In the **Resources** section, add a resource named **MyQueue** with the type **AWS::SQS::Queue**. Then add a property to the **AWS::Serverless::Function** resource named **DeadLetterQueue** that targets the queue's Amazon Resource Name (ARN), and a policy that grants the function permission to access the queue.
-
-```
-Resources:
-  MyQueue:
-    Type: AWS::SQS::Queue
-  getAllItemsFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler: src/handlers/get-all-items.getAllItemsHandler
-      Runtime: nodejs20.x
-      DeadLetterQueue:
-        Type: SQS 
-        TargetArn: !GetAtt MyQueue.Arn
-      Policies:
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt MyQueue.QueueName
-```
-
-The dead-letter queue is a location for Lambda to send events that could not be processed. It's only used if you invoke your function asynchronously, but it's useful here to show how you can modify your application's resources and function configuration.
-
-Deploy the updated application.
-
-```bash
-my-application$ sam deploy
-```
-
-Open the [**Applications**](https://console.aws.amazon.com/lambda/home#/applications) page of the Lambda console, and choose your application. When the deployment completes, view the application resources on the **Overview** tab to see the new resource. Then, choose the function to see the updated configuration that specifies the dead-letter queue.
-
-## Fetch, tail, and filter Lambda function logs
-
-To simplify troubleshooting, the AWS SAM CLI has a command called `sam logs`. `sam logs` lets you fetch logs that are generated by your Lambda function from the command line. In addition to printing the logs on the terminal, this command has several nifty features to help you quickly find the bug.
-
-**NOTE:** This command works for all Lambda functions, not just the ones you deploy using AWS SAM.
-
-```bash
-my-application$ sam logs -n putItemFunction --stack-name sam-app --tail
-```
-
-**NOTE:** This uses the logical name of the function within the stack. This is the correct name to use when searching logs inside an AWS Lambda function within a CloudFormation stack, even if the deployed function name varies due to CloudFormation's unique resource name generation.
-
-You can find more information and examples about filtering Lambda function logs in the [AWS SAM CLI documentation](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-logging.html).
-
-## Unit tests
-
-Tests are defined in the `__tests__` folder in this project. Use `npm` to install the [Jest test framework](https://jestjs.io/) and run unit tests.
-
-```bash
-my-application$ npm install
-my-application$ npm run test
-```
-
-## Cleanup
-
-To delete the sample application that you created, use the AWS CLI. Assuming you used your project name for the stack name, you can run the following:
-
-```bash
-sam delete --stack-name smart-meeting-engine
-```
-
-## Resources
-
-For an introduction to the AWS SAM specification, the AWS SAM CLI, and serverless application concepts, see the [AWS SAM Developer Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html).
-
-Next, you can use the AWS Serverless Application Repository to deploy ready-to-use apps that go beyond Hello World samples and learn how authors developed their applications. For more information, see the [AWS Serverless Application Repository main page](https://aws.amazon.com/serverless/serverlessrepo/) and the [AWS Serverless Application Repository Developer Guide](https://docs.aws.amazon.com/serverlessrepo/latest/devguide/what-is-serverlessrepo.html).
