@@ -114,7 +114,7 @@ Resources:
             Path: /presigned-url
             Method: options
 
-  # Function: Query individual meetingsAdd commentMore actions
+  # Function: Query individual meetings
   MeetingQueryFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -238,7 +238,6 @@ Resources:
           SAMPLE_TABLE: !Ref SampleTable
 
   # Function: Handle task extraction
-
   TaskExtractorFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -261,10 +260,39 @@ Resources:
         Variables:
           SAMPLE_TABLE: !Ref SampleTable
 
-  JiraTaskCreationFunction:
+  # FIXED: Consistent naming for Jira Task Analyzer
+  JiraTaskAnalyzerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "${AWS::StackName}-JiraTaskCreationFunction"
+      FunctionName: !Sub "${AWS::StackName}-JiraTaskAnalyzerFunction"
+      Handler: src/handlers/jira-task-analyzer.jiraTaskAnalyzerHandler
+      MemorySize: 1024
+      Timeout: 60
+      Description: Analyze Jira tasks based on the tasks existing in Jira extracted from API
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SampleTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
+            - Effect: Allow
+              Action: [events:PutEvents]
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:jira-meeting-tasks-config*"
+      Environment:
+        Variables:
+          SAMPLE_TABLE: !Ref SampleTable
+          JIRA_SECRET_NAME: "jira-meeting-tasks-config"
+
+  JiraTaskCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-JiraTaskCreateFunction"
       Handler: src/handlers/jira-task-creation.jiraTaskCreationHandler
       MemorySize: 1024
       Timeout: 60
@@ -273,22 +301,43 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref SampleTable
         - Statement:
-          - Effect: Allow
-            Action:
-              - bedrock:InvokeModel
-            Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
-          - Effect: Allow
-            Action: [events:PutEvents]
-            Resource: "*"
-        - Statement: # Add this policy block
-          - Effect: Allow
-            Action:
-              - secretsmanager:GetSecretValue
-            Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:jira-meeting-tasks-config*"
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:jira-meeting-tasks-config*"
       Environment:
         Variables:
           SAMPLE_TABLE: !Ref SampleTable
-          JIRA_SECRET_NAME: "jira-meeting-tasks-config"  # Add this line
+          JIRA_SECRET_NAME: "jira-meeting-tasks-config"
+
+  JiraTaskUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-JiraTaskUpdateFunction"
+      Handler: src/handlers/jira-task-update.jiraTaskUpdateHandler
+      MemorySize: 1024
+      Timeout: 60
+      Description: Update Jira tasks based on new extracted tasks
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SampleTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:jira-meeting-tasks-config*"
+      Environment:
+        Variables:
+          SAMPLE_TABLE: !Ref SampleTable
+          JIRA_SECRET_NAME: "jira-meeting-tasks-config"
 
   JiraTaskFetcherFunction:
     Type: AWS::Serverless::Function
@@ -319,13 +368,12 @@ Resources:
             Path: /jira/tasks
             Method: options
 
-
   # EventBridge Rule for S3 uploads - SIMPLIFIED PATTERN
   AudioUploadEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "${AWS::StackName}-AudioUploadEventRule"  # ← Add this
-      Description: Trigger when audio files are uploaded to meetings folder  # ← Add this
+      Name: !Sub "${AWS::StackName}-AudioUploadEventRule"
+      Description: Trigger when audio files are uploaded to meetings folder
       EventPattern:
         source: [ "aws.s3" ]
         detail-type: [ "Object Created" ]
@@ -334,9 +382,9 @@ Resources:
             name: [ !Ref MeetingAudioBucket ]
           object:
             key:
-              - prefix: "meetings/"  # ← Only process files in meetings/ folder
-      State: ENABLED  # ← Add this
-      Targets: # ← Add this entire section
+              - prefix: "meetings/"
+      State: ENABLED
+      Targets:
         - Arn: !GetAtt AudioUploadProcessorFunction.Arn
           Id: "AudioUploadTarget"
 
@@ -389,18 +437,45 @@ Resources:
         - Arn: !GetAtt TaskExtractorFunction.Arn
           Id: "TaskExtractionTarget"
 
-  JiraTaskCreationTriggerRule:
+  # FIXED: Consistent function reference
+  JiraTaskAnalyzerTriggerRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "${AWS::StackName}-JiraTaskCreationTriggerRule"
-      Description: Trigger Jira task creation when task extraction completes
+      Name: !Sub "${AWS::StackName}-JiraTaskAnalyzerTriggerRule"
+      Description: Trigger Jira task analysis when task extraction completes
       EventPattern:
         source: ["meeting.app"]
         detail-type: ["Task Extraction Completed"]
       State: ENABLED
       Targets:
-        - Arn: !GetAtt JiraTaskCreationFunction.Arn
-          Id: "JiraTaskCreationTarget"
+        - Arn: !GetAtt JiraTaskAnalyzerFunction.Arn
+          Id: "JiraTaskAnalyzerTarget"
+
+  JiraTaskCreateTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-JiraTaskCreateTriggerRule"
+      Description: Trigger Jira task creation when analysis completes
+      EventPattern:
+        source: ["meeting.app"]
+        detail-type: ["Tasks Ready for Creation"]
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt JiraTaskCreateFunction.Arn
+          Id: "JiraTaskCreateTarget"
+
+  JiraTaskUpdateTriggerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-JiraTaskUpdateTriggerRule"
+      Description: Trigger Jira task update when analysis completes
+      EventPattern:
+        source: ["meeting.app"]
+        detail-type: ["Tasks Ready for Update"]
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt JiraTaskUpdateFunction.Arn
+          Id: "JiraTaskUpdateTarget"
 
   # Lambda permissions for EventBridge
   AudioUploadEventPermission:
@@ -433,23 +508,39 @@ Resources:
       FunctionName: !Ref TaskExtractorFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt TaskExtractionTriggerRule.Arn  # ← Fixed: was TaskExtractionTriggerRule
+      SourceArn: !GetAtt TaskExtractionTriggerRule.Arn
 
-  JiraTaskCreationTriggerPermission:
+  # FIXED: Correct function references
+  JiraTaskAnalyzerTriggerPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref JiraTaskCreationFunction
+      FunctionName: !Ref JiraTaskAnalyzerFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt JiraTaskCreationTriggerRule.Arn  # ← Fixed: was TaskExtractionTriggerRule
+      SourceArn: !GetAtt JiraTaskAnalyzerTriggerRule.Arn
+
+  JiraTaskCreateTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref JiraTaskCreateFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt JiraTaskCreateTriggerRule.Arn
+
+  JiraTaskUpdateTriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref JiraTaskUpdateFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt JiraTaskUpdateTriggerRule.Arn
 
   # CloudWatch Log Groups with retention
   PresignedUrlLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${PresignedUrlFunction}"
-      RetentionInDays: 30
-
+      RetentionInDays: !Ref LogRetentionDays
 
   MeetingQueryLogGroup:
     Type: AWS::Logs::LogGroup
@@ -457,24 +548,23 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${MeetingQueryFunction}"
       RetentionInDays: !Ref LogRetentionDays
 
-
   AudioUploadProcessorLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${AudioUploadProcessorFunction}"
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
 
   TranscriptionStarterLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${TranscriptionStarterFunction}"
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
 
   TranscriptionCompleteProcessorLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/${TranscriptionCompleteProcessorFunction}"
-      RetentionInDays: 30
+      RetentionInDays: !Ref LogRetentionDays
 
   TaskExtractorLogGroup:
     Type: AWS::Logs::LogGroup
@@ -482,11 +572,31 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${TaskExtractorFunction}"
       RetentionInDays: !Ref LogRetentionDays
 
-  JiraTaskCreationLogGroup:
+  # ADDED: Missing log groups
+  JiraTaskAnalyzerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${JiraTaskCreationFunction}"  # ← Fix: was JiraTackCreationFunction
+      LogGroupName: !Sub "/aws/lambda/${JiraTaskAnalyzerFunction}"
       RetentionInDays: !Ref LogRetentionDays
+
+  JiraTaskCreateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${JiraTaskCreateFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  JiraTaskUpdateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${JiraTaskUpdateFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  JiraTaskFetcherLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${JiraTaskFetcherFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
 Outputs:
   # API Endpoints
   ApiGatewayEndpoint:
@@ -514,8 +624,6 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-DynamoDBTable"
 
-
-
   # Function Names for debugging
   AudioUploadProcessorFunctionName:
     Description: "Audio upload processor function name"
@@ -541,8 +649,20 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-TaskExtractorFunction"
 
-  JiraTaskCreationFunctionName:
-    Description: "Jira task creation from extracted tasks"
-    Value: !Ref JiraTaskCreationFunction
+  JiraTaskAnalyzerFunctionName:
+    Description: "Jira task analyzer function name"
+    Value: !Ref JiraTaskAnalyzerFunction
     Export:
-      Name: !Sub "${AWS::StackName}-JiraTaskCreationFunction"
+      Name: !Sub "${AWS::StackName}-JiraTaskAnalyzerFunction"
+
+  JiraTaskCreateFunctionName:
+    Description: "Jira task creation from extracted tasks"
+    Value: !Ref JiraTaskCreateFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-JiraTaskCreateFunction"
+
+  JiraTaskUpdateFunctionName:
+    Description: "Jira task update function name"
+    Value: !Ref JiraTaskUpdateFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-JiraTaskUpdateFunction"

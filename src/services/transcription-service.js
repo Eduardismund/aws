@@ -59,7 +59,6 @@ exports.processCompletedTranscription = async(jobName) => {
         await updateMeetingRecord(meetingId, {
             transcriptionStatus: 'completed',
             transcriptionJobStatus: 'COMPLETED',
-            transcriptionData: transcriptionData,
             fullTranscript: fullTranscript,
             updatedAt: new Date().toISOString()
         })
