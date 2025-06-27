@@ -1,6 +1,6 @@
 const {BedrockRuntimeClient, InvokeModelCommand} = require('@aws-sdk/client-bedrock-runtime');
 const {getMeetingById} = require('../services/meeting-service');
-const {triggerJiraTaskCreation} = require('../services/event-publisher');
+const {triggerJiraTaskCreation, triggerJiraTaskAnalyzer} = require('../services/event-publisher');
 const {updateMeetingRecord} = require('../lib/dynamodbClient');
 
 const bedrockClient = new BedrockRuntimeClient({region: process.env.AWS_REGION});
@@ -34,7 +34,7 @@ exports.taskExtractorHandler = async (event) => {
             updatedAt: new Date().toISOString()})
 
         if(extractedTasks.tasks && extractedTasks.tasks.length >0){
-            await triggerJiraTaskCreation(meetingId)
+            await triggerJiraTaskAnalyzer(meetingId)
         }
 
         return {
@@ -73,6 +73,7 @@ Return this exact JSON structure:
   "tasks": [
     {
       "title": "Task title",
+      "status": "to do|in progress|done",
       "description": "What needs to be done",
       "assignee": "Person assigned or 'unassigned'",
       "priority": "low|medium|high",
@@ -80,13 +81,18 @@ Return this exact JSON structure:
     }
   ]
 }
-
 Rules:
-- Only extract clear, actionable tasks
-- Include both explicit assignments and implied action items
+- Meeting future check-ins are not tasks
+- Extract ALL tasks mentioned, including work that's completed
+- Status determination:
+  * "done" = completed work ("it's done", "finished", "completed", "working like a charm")
+  * "in progress" = currently working ("60% done", "getting there", "working on", "finishing [soon]")
+  * "to do" = newly assigned or upcoming work
+- Include status updates on existing work - if someone reports work is finished, extract it as "done"
+- Include both explicit assignments and work progress updates
+- Don't miss completed work - if someone says their task is finished, include it
 - Return empty tasks array if no actionable items exist
-- Return valid JSON only, no additional text
-- For dueDate: convert relative dates like "tomorrow", "next week", "by Friday" to YYYY-MM-DD format, compute it by analyzing today's date`;
+- Return valid JSON only, no additional text`;
     const payload = {
         anthropic_version: "bedrock-2023-05-31",
         max_tokens: 4000,

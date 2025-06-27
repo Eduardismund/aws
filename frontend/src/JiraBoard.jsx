@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RefreshCw, AlertCircle, Filter, Search } from 'lucide-react';
 import TaskBox from './TaskBox';
 
-const JiraBoard = ({ API_BASE = "https://ywt4vv4j81.execute-api.eu-central-1.amazonaws.com/Prod" }) => {
+const JiraBoard = ({ API_BASE = "https://mt8d9y8i79.execute-api.eu-central-1.amazonaws.com/Prod" }) => {
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);

@@ -48,7 +48,8 @@ async function publishTranscriptionEvent(meeting){
         throw new Error(`Failed to publish event: ${error.message}`);
     }
 };
-async function triggerJiraTaskCreation(meetingId) {
+
+async function triggerJiraTaskAnalyzer(meetingId) {
     const eventDetails = {
         meetingId,
         triggeredBy: "task-extraction-complete",
@@ -65,6 +66,21 @@ async function triggerJiraTaskCreation(meetingId) {
     });
 
     await eventBridgeClient.send(command);
+}
+async function triggerJiraTaskHandle(data) {
+
+    const command = new PutEventsCommand({
+        Entries: [{
+            Source: "meeting.app",
+            DetailType: `Tasks Ready for ${data.operation}`,
+            Detail: JSON.stringify(data),
+            Time: new Date()
+        }]
+    });
+
+    await eventBridgeClient.send(command);
+    console.log(`triggered task ${data.operation} event for ${data.tasks.length} tasks`);
+
 }
 
 
@@ -89,6 +105,7 @@ async function triggerTaskExtraction(meetingId){
 
 module.exports = {
     publishTranscriptionEvent,
-    triggerJiraTaskCreation,
-    triggerTaskExtraction
+    triggerJiraTaskHandle,
+    triggerTaskExtraction,
+    triggerJiraTaskAnalyzer
 };

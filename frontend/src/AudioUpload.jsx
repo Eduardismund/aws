@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload, Play, Pause, File, Volume2, X } from 'lucide-react';
 
-const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://ywt4vv4j81.execute-api.eu-central-1.amazonaws.com/Prod"}) => {
+const SimpleAudioUpload = ({ onUploadSuccess, API_BASE = "https://mt8d9y8i79.execute-api.eu-central-1.amazonaws.com/Prod"}) => {
     const [file, setFile] = useState(null);
     const [mediaUrl, setMediaUrl] = useState(null);
     const [isPlaying, setIsPlaying] = useState(false);
