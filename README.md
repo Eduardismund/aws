@@ -1,13 +1,18 @@
-# Smart meeting task extractor - AWS Lambda Hackathon Submission
+# Smart Meeting Assistant - AWS Lambda Hackathon Submission
 
 ## Project Overview
 
-**Brief Description**: This application has focuses on automating meetings by being able to upload an audio or video file and using AWS Lambda services to have the corresponding task extracted and posted to Jira. 
+**Brief Description**: This application focuses on automating meetings by being able to upload 
+an audio file and using AWS Lambda services to have the corresponding tasks extracted
+and posted to Jira. 
 
 **Problem Statement**: This project aims to solve an issue that most businesses face: those boring but necessary 
-meetings that end up with people being assigned tasks. Having to actively pay attention and note what needs to be assigned as a task is frustrating and can result in mismatching a task to the assignee or other human error that we are prone to. 
+meetings that end up with people being assigned tasks. Having to actively pay attention and note what needs to be assigned as a 
+task is frustrating and can result in mismatching a task to the assignee or other human error that we are prone to. 
 
-**Solution Summary**: The way I propose to solve this problem is using my Smart Meeting Task Extractor. The user faces a React app, where he or she can upload an mp3 or video of that meeting, that will ultimately be transcribed, analyzed and transformed into Jira tasks.
+**Solution Summary**: The way I propose to solve this problem is using my Smart Meeting Assistant. 
+The user faces a React app, where he or she can upload an mp3 of a meeting, 
+that will ultimately be transcribed, analyzed and transformed into Jira tasks.
 
 ## Architecture & AWS Lambda Usage
 
@@ -17,9 +22,11 @@ meetings that end up with people being assigned tasks. Having to actively pay at
 - **Purpose**: Provides secure, temporary URLs for direct file uploads to S3 without exposing AWS credentials
 - **Trigger**: API Gateway HTTP requests
 - **AWS Services Used**: S3, API Gateway
+- **API Endpoint**:  POST `/presigned-url`, body: `{meetingId, fileName, contentType}` 
+
 
 #### 2. `audioUploadProcessor` - S3 Event Processor
-- **Purpose**: The user uploads an audio/ video file from the user-facing application and this function handles the storage
+- **Purpose**: The user uploads an audio from the user-facing application and this function handles the storage
 of the file metadata to DynamoDB and triggers the transcription workflow
 - **Trigger**: S3 Object Created events via EventBridge
 - **AWS Services Used**: S3, EventBridge, DynamoDB
@@ -28,19 +35,16 @@ of the file metadata to DynamoDB and triggers the transcription workflow
 - **Purpose**: Provides real-time status updates and meeting information to the frontend application
 - **Trigger**: API Gateway HTTP requests
 - **AWS Services Used**: DynamoDB, API Gateway
+- **API Endpoint**: GET `/meeting/{meetingId}`, body: `None`
 
 #### 4. `transcriptionStarter` - Transcription Job Initiator
-- **Purpose**: Orchestrates the speech-to-text conversion process for uploaded meeting recordings.
+- **Purpose**: Orchestrates the speech-to-text conversion process for uploaded meeting recordings,
+by integrating Amazon Transcribe, which is being served the processed audio input. The command that links it to Amazon Transcribe is `StartTranscriptionJobCommand`
 - **Trigger**: Custom EventBridge events ("Meeting Ready for Transcription")
 - **AWS Services Used**: Amazon Transcribe, DynamoDB, EventBridge
-- **Key Features**:
-- Automatic transcription job creation with optimal settings
-- Status tracking and database updates
-- Error handling for unsupported audio formats
-- Integration with EventBridge for workflow orchestration
 
 #### 5. `transcriptionCompleteProcessor` - Transcription Result Handler
-- **Purpose**: Processes completed transcription results and triggers the AI-powered task execution workflow
+- **Purpose**: Processes completed transcription results and triggers the AI-powered task execution workflow.
 - **Trigger**: Amazon Transcribe job state change events
 - **AWS Services Used**: Amazon Transcribe, DynamoDB, EventBridge
 
@@ -49,37 +53,28 @@ of the file metadata to DynamoDB and triggers the transcription workflow
 - **Trigger**: Custom EventBridge events ("Transcription Complete")
 - **AWS Services Used**: Amazon Bedrock (Claude), DynamoDB, EventBridge
 
-
 #### 7. `jiraTaskAnalyzerHandler` - AI-Powered Task Analysis
 - **Purpose**: Analyzes extracted meeting tasks using AI to determine which should be created as new Jira tickets versus which should update existing tickets.
 Prevents duplicate work and maintains workflow continuity.
 - **Trigger**: Custom EventBridge events ("Task Extraction Completed")
-- **AWS Services Used**: Amazon Bedrock (Claude), DynamoDB, EventBridge
-- **Key Features**:
-    - Intelligent task deduplication using AI analysis
-    - Comparison with existing Jira tickets
-    - User matching and assignment validation
-    - Workflow orchestration for creation/update operations
+- **AWS Services Used**: Amazon Bedrock (Claude), DynamoDB, EventBridge, SecretsManager
 
 #### 8. `jiraTaskCreationHandler` - New Task Creation
 - **Purpose**: Creates new Jira tickets from meeting-extracted tasks that don't match existing work items. Handles user assignment, priority setting, and proper task formatting.
 - **Trigger**: Custom EventBridge events ("Tasks Ready for Creation")
-- **AWS Services Used**: External Jira API, DynamoDB
-- **Key Features**:
-    - Automated ticket creation with proper formatting
-    - User account matching and assignment
-    - Error handling and retry logic
-    - Status tracking and result reporting
+- **AWS Services Used**: External Jira API, DynamoDB, SecretsManager
 
 #### 9. `jiraTaskUpdateHandler` - Existing Task Updates
 - **Purpose**: Updates existing Jira tickets based on meeting discussions, including status changes, reassignments, and progress updates. Maintains project continuity by avoiding task duplication.
 - **Trigger**: Custom EventBridge events ("Tasks Ready for Update")
-- **AWS Services Used**: External Jira API, DynamoDB
-- **Key Features**:
-    - Status transition handling (To Do → In Progress → Done)
-    - Assignee reassignment capabilities
-    - Progress tracking and comment updates
-    - Comprehensive error handling and logging
+- **AWS Services Used**: External Jira API, DynamoDB, SecretsManager
+
+#### 10. `jiraTasksFetchHandler` - API GET Handler
+- **Purpose**: Fetches all tasks from Jira project using REST API.
+- **Trigger**: API Gateway
+- **AWS Services Used**: External Jira API, SecretsManager
+- **API Endpoint**: GET `/jira/tasks`, body: `None`
+
 
 ### Lambda Triggers Used
 
@@ -122,37 +117,6 @@ for further processing.
 
 **API Gateway**: RESTful API endpoints for frontend integration with built-in CORS support, request validation, and Lambda integration.
 
-## AI Processing Pipeline
-
-### Task Extraction Intelligence
-The system uses **Amazon Bedrock with Claude 3.5 Sonnet** for sophisticated meeting analysis:
-
-**Task Classification**:
-- **"done"**: Completed work ("it's done")
-- **"in progress"**: Active work ("x% done")
-- **"to do"**: Newly assigned or upcoming work
-
-**Smart Filtering**:
-- Excludes routine check-ins and status meetings
-- Focuses on actionable work items
-- Captures both new assignments and progress updates
-
-### Jira Integration Intelligence
-- **User Matching**: AI-powered fuzzy matching for assignee names
-- **Task Deduplication**: Prevents duplicate tickets using existing task analysis
-- **Smart Updates**: Identifies when to update vs create based on task similarity
-- **Status Transitions**: Automatic workflow state management
-
-## API Reference
-
-### Available Endpoints
-
-| Method | Endpoint | Purpose | Request Body |
-|--------|----------|---------|--------------|
-| POST | `/presigned-url` | Get upload URL | `{meetingId, fileName, contentType}` |
-| GET | `/meeting/{meetingId}` | Get meeting status | None |
-| GET | `/jira/tasks` | List Jira tasks | None |
-
 ## Features & Functionality
 
 ### Core Features
@@ -165,7 +129,7 @@ The system uses **Amazon Bedrock with Claude 3.5 Sonnet** for sophisticated meet
 
 ### User Workflow
 
-1. **Upload Meeting Record**: User uploads audio/video file through React frontend
+1. **Upload Meeting Record**: User uploads audio file through React frontend
 2. **Automatic Processing**: System transcribes audio, extracts tasks, and creates Jira tickets automatically
 3. **Review Results**: User can switch to Jira tasks view from the main page and the created tasks will be fetched and
 shown on the in-page board to see the end results.
@@ -185,7 +149,7 @@ based on demand. No infrastructure management required.
 
 ### Best Practices Implemented
 
-**Error Handling**: Comprehensive try-catch blocks, structured logging with request IDs, and graceful error responses with appropriate HTTP status codes.
+**Error Handling**: Comprehensive try-catch blocks,  and graceful error responses with appropriate HTTP status codes.
 
 **Logging & Monitoring**: CloudWatch integration for monitoring function performance, duration, and error rates. Structured logging for debugging.
 
@@ -222,8 +186,8 @@ BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20240620-v1:0
 CORS_ORIGIN=http://localhost:5173
 
 # Frontend Environment Variables (.env)
+# IMPORTANT: replace this with the newly deployed API Gateway endpoint
 VITE_API_BASE_URL=https://mt8d9y8i79.execute-api.eu-central-1.amazonaws.com/Prod
-VITE_APP_TITLE=Smart Meeting Task Extractor
 ```
 
 ## Deployment Steps
@@ -232,8 +196,8 @@ VITE_APP_TITLE=Smart Meeting Task Extractor
 
 ```bash
 # Clone repository
-git clone https://github.com/Eduardismund/aws
-cd smart-meeting-extractor
+git clone https://github.com/Eduardismund/aws-hackathon-project
+cd aws-hackathon-project
 
 # Install dependencies
 npm install
@@ -244,6 +208,17 @@ aws configure
 ```
 2. **Configure Jira Integration**:
 
+**Note**: The following setup is part of a test environment, having restricted time limit.
+If you're following these instructions, please be aware that you may need to use your own Jira credentials rather than 
+the demo credentials shown here.
+
+The secret contains: 
+- **JIRA_BASE_URL**: Your Jira instance URL
+- **JIRA_EMAIL**: Email associated with your Jira account
+- **JIRA_API_TOKEN**: API token for authentication
+- **JIRA_PROJECT_KEY**: Project key where tasks will be created
+- **JIRA_BOARD_ID**: Board ID for task organization
+
 ```bash
 # Create Jira API credentials secret in AWS Secrets Manager
 aws secretsmanager create-secret \
@@ -252,7 +227,7 @@ aws secretsmanager create-secret \
   --secret-string '{"JIRA_BASE_URL": "https://meetingtasksdemo.atlassian.net", "JIRA_EMAIL": "meetingtasks.demo@proton.me", "JIRA_API_TOKEN": "ATATT3xFfGF0ovjrs6CX445yaatTd-r-EJo5iFsIUHMS_7CU2ieB6EkF8g4yHGdfdlqL-wgBl0ExKY8A5rUmPoSqn46ya8E4C4T42CTifQ6ga3HCNxt07e0brp4z6oB5c5PAdt6-AZUUDJzhg6McC5AN9myIc0yxc-h3N6dPZzC-dFlA7mARLxc=FE4A5569", "JIRA_PROJECT_KEY": "CRM", "JIRA_BOARD_ID": "1"}' \
   --region eu-central-1
 
-# Verify secret creation
+# (Optional) Verify secret creation
 aws secretsmanager get-secret-value \
   --secret-id "jira-meeting-tasks-config" \
   --region eu-central-1
@@ -264,7 +239,7 @@ aws secretsmanager get-secret-value \
 # Build Lambda functions
 sam build
 
-# Deploy infrastructure (production command used)
+# Deploy infrastructure 
 sam deploy \
   --stack-name asa-si-eu-no-tu-ioi \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
@@ -273,8 +248,6 @@ sam deploy \
   --force-upload \
   --no-confirm-changeset
 
-# Alternative: Guided deployment for first-time setup
-# sam deploy --guided
 ```
 
 4. **Frontend Development & Deployment**
