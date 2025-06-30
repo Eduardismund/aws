@@ -1,4 +1,5 @@
 # Smart Meeting Assistant - AWS Lambda Hackathon Submission
+![img.png](img.png)
 
 ## Project Overview
 
